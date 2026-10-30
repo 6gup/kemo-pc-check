@@ -1,3 +1,6 @@
+Nig
+kxpacts<kxpacts@gmail.com>
+You
 # =============================================================================
 # made-by-kemo | PC Forensic Check v3.1 (trusted publisher whitelist)
 # made-by-kemo | Run as Administrator. Output -> $env:USERPROFILE\Desktop\PC-Check
@@ -35,7 +38,6 @@ if($lastLogon){Write-Result INFO "Last interactive logon: $lastLogon"}else{Write
 
 # ============================================================================
 # TRUSTED PUBLISHERS — anything signed by these is treated as SAFE
-# (extend this list if you want; keep it to big, well-known vendors)
 # ============================================================================
 $trustedSigners=@(
     'Logitech','Logitech Inc','Logitech Europe S.A.',
@@ -203,7 +205,6 @@ foreach($root in $roots){
         if(-not $sig){foreach($k in $watchList){if($f.Name -like "*$k*"){$sig='WATCH';break}}}
         if(-not $sig){foreach($k in $lowSignal){if($f.Name -like "*$k*"){$sig='LOW';break}}}
         if($sig -and ($suspExt -contains $f.Extension.ToLower())){
-            # KEY FIX: skip if signed by trusted publisher (Logitech etc.)
             $trusted=Test-TrustedSigner -FilePath $f.FullName
             if($trusted){
                 Write-Result SAFE "Trusted file with keyword in name: $($f.Name) (signed: $trusted)"
@@ -379,4 +380,5 @@ if($rb.Count -eq 0){
     foreach($r in $rb){
         $susp=$false
         foreach($k in $highSignal){if($r.FullName -like "*$k*"){$susp=$true;break}}
-        if($susp){Write-Result FAIL " [CHEAT-NAME] $($r.FullName) ($([m
+        if($susp){Write-Result FAIL " [CHEAT-NAME] $($r.FullName) ($([math]::Round($r.Length/1KB,1)) KB, $($r.LastWrite))"}
+        else{Write-Result INFO " $($r.FullName) ($([math]::Round($r.Length/1KB,1)) KB, $($r.
