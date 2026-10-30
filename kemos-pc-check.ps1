@@ -1,6 +1,3 @@
-Nig
-kxpacts<kxpacts@gmail.com>
-You
 # =============================================================================
 # made-by-kemo | PC Forensic Check v3.1 (trusted publisher whitelist)
 # made-by-kemo | Run as Administrator. Output -> $env:USERPROFILE\Desktop\PC-Check
