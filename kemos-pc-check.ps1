@@ -1,5 +1,5 @@
 # =============================================================================
-# made-by-kemo | PC Forensic Check v5.1 (Full .cfg Scan, USB EXE, Progress)
+# made-by-kemo | PC Forensic Check v5.2 (Paged UI & Custom Progress Bars)
 # made-by-kemo | Run as Administrator. Output -> $env:USERPROFILE\Desktop\PC-Check
 # =============================================================================
 $ErrorActionPreference = 'SilentlyContinue'
@@ -8,6 +8,7 @@ $ProgressPreference = 'SilentlyContinue'
 # =============================================================================
 # LOGIN & HWID LOCK SYSTEM
 # =============================================================================
+Clear-Host
 Write-Host "`n=== made-by-kemo | Secure Login ===`n" -ForegroundColor Cyan
 $user = Read-Host "username"
 $securePass = Read-Host "password" -AsSecureString
@@ -47,34 +48,51 @@ if ($authData.ContainsKey($user)) {
     $authData | ConvertTo-Json | Out-File $authFile -Force
 }
 Write-Host "`n[SAFE] Login successful. Bound to HWID." -ForegroundColor Green
+Start-Sleep -Seconds 2
+Clear-Host
 
 # =============================================================================
 # FORENSIC CHECK START
 # =============================================================================
-Write-Host "`n=== made-by-kemo | PC Forensic Check v5.1 | starting... ===`n" -ForegroundColor Cyan
 $Out = "$env:USERPROFILE\Desktop\PC-Check"
 $ReportPath = Join-Path $Out "report.txt"
 New-Item -ItemType Directory -Path $Out -Force | Out-Null
-"made-by-kemo | v5.1 | started $(Get-Date) | User: $user" | Out-File $ReportPath
+"made-by-kemo | v5.2 | started $(Get-Date) | User: $user" | Out-File $ReportPath
 $script:failCount = 0; $script:warnCount = 0; $script:safeCount = 0
+$script:Buffer = @()
 
-function Write-Result {
-    param([string]$Tag, [string]$Message)
-    $c = @{SAFE='Green'; WARN='Yellow'; FAIL='Red'; INFO='Cyan'}
-    $l = "[$Tag] $Message"
-    Write-Host $l -ForegroundColor $c[$Tag]
-    Add-Content $ReportPath $l
-    switch($Tag){ SAFE{$script:safeCount++} WARN{$script:warnCount++} FAIL{$script:failCount++} }
+function Show-Progress {
+    param([int]$Percent)
+    $filled = [math]::Floor($Percent / 10)
+    $empty = 10 - $filled
+    $bar = ("/" * $filled) + ("-" * $empty)
+    Write-Host "`r[$bar] $Percent% " -NoNewline -ForegroundColor Cyan
 }
-function Write-Section {
-    param([string]$Title)
-    $l = "`n=== $Title ==="
-    Write-Host $l -ForegroundColor DarkCyan
-    Add-Content $ReportPath $l
+
+function Add-Result {
+    param([string]$Tag, [string]$Message)
+    $script:Buffer += [PSCustomObject]@{ Tag = $Tag; Message = $Message }
+    Add-Content $ReportPath "[$Tag] $Message"
+}
+
+function Flush-Results {
+    Write-Host "`n" # Move below progress bar
+    $c = @{SAFE='Green'; WARN='Yellow'; FAIL='Red'; INFO='Cyan'}
+    foreach ($item in $script:Buffer) {
+        Write-Host "[$($item.Tag)] $($item.Message)" -ForegroundColor $c[$item.Tag]
+        switch($item.Tag){ SAFE{$script:safeCount++} WARN{$script:warnCount++} FAIL{$script:failCount++} }
+    }
+    $script:Buffer = @()
+}
+
+function Wait-Pager {
+    Write-Host "`nPress Enter to Continue." -ForegroundColor DarkGray
+    Read-Host | Out-Null
+    Clear-Host
 }
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if(-not $isAdmin) { Write-Result WARN "Not elevated - results may be limited." }
+if(-not $isAdmin) { Add-Result WARN "Not elevated - results may be limited." }
 
 $trustedSigners = @(
     'Logitech', 'Logitech Inc', 'Logitech Europe S.A.', 'Microsoft', 'Microsoft Corporation', 'Microsoft Windows',
@@ -106,7 +124,10 @@ function Test-TrustedSigner {
 $highSignal = @('severe', 'matcha', 'spectre', 'aimbot', 'triggerbot', 'wallhack', 'silentaim', 'injector', 'fatality', 'gamesense', 'neverlose', 'onetap', 'legendware', 'primordial', 'skeet', 'memesense', 'nixware', 'aimware', 'pandora', 'weave', 'phantom', 'midnight', 'vape', 'entropy', 'sapphire', 'hvh', 'aimassist', 'radarhack', 'xeno', 'madium', 'potassium', 'volt')
 
 # =============================================================================
-Write-Section "STEP 1 - System Info & HWID"
+# STEP 1 - System Info & HWID
+# =============================================================================
+Write-Host "=== STEP 1 - System Info & HWID ===" -ForegroundColor Cyan
+for($i=0; $i -le 100; $i+=10) { Show-Progress $i; Start-Sleep -Milliseconds 30 }
 try {
     Get-ComputerInfo | Out-File "$Out\system-info.txt"
     $volSerial = (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").VolumeSerialNumber
@@ -114,145 +135,155 @@ try {
     $baseboard = (Get-CimInstance Win32_BaseBoard).SerialNumber
     $hwidData = "=== HWID ===`nMachine GUID: $mGuid`nBIOS: $biosSerial`nMotherboard: $baseboard`nCPU ID: $cpuId`nC: Serial: $volSerial"
     $hwidData | Out-File "$Out\hwid.txt" -Force
-    Write-Result SAFE "HWID logged to hwid.txt"
-} catch { Write-Result WARN "System info failed: $_" }
+    Add-Result SAFE "HWID logged to hwid.txt"
+} catch { Add-Result WARN "System info failed: $_" }
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 2 - Full PC .cfg Inspection"
-$drives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -ExpandProperty DeviceID
+# STEP 2 - Full PC & USB .cfg Inspection
+# =============================================================================
+Write-Host "=== STEP 2 - Full PC & USB .cfg Inspection ===" -ForegroundColor Cyan
+$drives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3 OR DriveType=2" | Select-Object -ExpandProperty DeviceID
 $cfgFiles = @()
 foreach ($d in $drives) {
     $cfgFiles += Get-ChildItem -Path "$d\" -Filter "*.cfg" -File -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if ($cfgFiles.Count -gt 0) {
-    Write-Result WARN "Found $($cfgFiles.Count) .cfg files. Scanning contents..."
     $i = 0
     foreach ($cfg in $cfgFiles) {
         $i++
         $pct = [math]::Round(($i / $cfgFiles.Count) * 100)
-        Write-Progress -Activity "Scanning .cfg files" -Status "$pct% - $($cfg.FullName)" -PercentComplete $pct
-        
+        Show-Progress $pct
         $content = Get-Content $cfg.FullName -Raw -ErrorAction SilentlyContinue
         $isSusp = $false
-        foreach ($k in $highSignal) {
-            if ($content -match "(?i)$k") { $isSusp = $true; break }
-        }
-        
-        if ($isSusp) {
-            Write-Result FAIL "Suspicious .cfg: $($cfg.FullName) (Contains cheat keywords)"
-        } else {
-            Write-Result SAFE "Clean .cfg: $($cfg.FullName)"
-        }
+        foreach ($k in $highSignal) { if ($content -match "(?i)$k") { $isSusp = $true; break } }
+        if ($isSusp) { Add-Result FAIL "Suspicious .cfg: $($cfg.FullName)" } 
+        else { Add-Result SAFE "Clean .cfg: $($cfg.FullName)" }
     }
-    Write-Progress -Activity "Scanning .cfg files" -Completed
 } else {
-    Write-Result SAFE "No .cfg files found on this PC."
+    for($i=0; $i -le 100; $i+=10) { Show-Progress $i; Start-Sleep -Milliseconds 20 }
+    Add-Result SAFE "No .cfg files found on fixed or USB drives."
 }
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 3 - Running Processes"
+# STEP 3 - Running Processes
+# =============================================================================
+Write-Host "=== STEP 3 - Running Processes ===" -ForegroundColor Cyan
 $procs = Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath
 $i = 0
 foreach($p in $procs) {
     $i++
-    Write-Progress -Activity "Scanning Processes" -Status "$([math]::Round(($i/$procs.Count)*100))%" -PercentComplete (($i/$procs.Count)*100)
+    Show-Progress ([math]::Round(($i/$procs.Count)*100))
     if(-not $p.ExecutablePath) { continue }
     if(Test-TrustedSigner -FilePath $p.ExecutablePath) { continue }
-    
     $sig = Get-AuthenticodeSignature -FilePath $p.ExecutablePath -ErrorAction SilentlyContinue
-    if ($sig.Status -ne 'Valid') {
-        Write-Result WARN "UNSIGNED Process: $($p.Name) -> $($p.ExecutablePath)"
-    }
+    if ($sig.Status -ne 'Valid') { Add-Result WARN "UNSIGNED Process: $($p.Name) -> $($p.ExecutablePath)" }
 }
-Write-Progress -Activity "Scanning Processes" -Completed
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No unsigned or suspicious processes found." }
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 4 - USB Executables & Injection Traces"
+# STEP 4 - USB Executables & Injection Traces
+# =============================================================================
+Write-Host "=== STEP 4 - USB Executables & Injection Traces ===" -ForegroundColor Cyan
+Show-Progress 10
 $usbDrives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=2" | Select-Object -ExpandProperty DeviceID
-if ($usbDrives) {
-    Write-Result WARN "Removable USB Drives currently attached: $($usbDrives -join ', ')"
-} else {
-    Write-Result INFO "No USB drives currently attached."
-}
+if ($usbDrives) { Add-Result WARN "Removable USB Drives currently attached: $($usbDrives -join ', ')" }
+Show-Progress 30
 
-# Check Prefetch for VOLUME_ (USB EXE execution)
 $pf = Get-ChildItem "C:\Windows\Prefetch" -Filter "*.pf" -ErrorAction SilentlyContinue
 foreach ($p in $pf) {
-    if ($p.Name -match '^VOLUME_') {
-        Write-Result WARN "USB EXE Executed (Prefetch): $($p.Name) at $($p.LastWriteTime)"
-    }
+    if ($p.Name -match '^VOLUME_') { Add-Result WARN "USB EXE Executed (Prefetch): $($p.Name) at $($p.LastWriteTime)" }
 }
+Show-Progress 60
 
-# Check Event Log for process creation from USB drives (D:, E:, etc)
 try {
     $since = (Get-Date).AddDays(-7)
     $sec = @(Get-WinEvent -FilterHashtable @{ LogName='Security'; Id=4688; StartTime=$since } -MaxEvents 1000 -ErrorAction SilentlyContinue)
     $usbEvHits = 0
     foreach ($ev in $sec) {
         if ($ev.Message -match 'New Process Name:\s+([D-Z]:\\.+\.exe)') {
-            $exe = $matches[1].Trim()
-            Write-Result FAIL "EXE Executed from USB (Event 4688): $exe at $($ev.TimeCreated)"
+            Add-Result FAIL "EXE Executed from USB (Event 4688): $($matches[1].Trim()) at $($ev.TimeCreated)"
             $usbEvHits++
         }
     }
-    if ($usbEvHits -eq 0) { Write-Result SAFE "No USB EXE execution found in Event Logs." }
+    if ($usbEvHits -eq 0) { Add-Result SAFE "No USB EXE execution found in Event Logs." }
 } catch {}
+Show-Progress 100
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 5 - Keyword & File Scan"
+# STEP 5 - Keyword File Scan
+# =============================================================================
+Write-Host "=== STEP 5 - Keyword File Scan ===" -ForegroundColor Cyan
 $roots = @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:TEMP", "C:\ProgramData")
-foreach($root in $roots) {
-    if (Test-Path $root) {
-        Get-ChildItem -LiteralPath $root -File -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            $f = $_
-            $sig = $null
-            foreach($k in $highSignal) { if($f.Name -like "*$k*") { $sig = 'HIGH'; break } }
-            if ($sig) { Write-Result FAIL "Keyword file: $($f.FullName)" }
+$allFiles = @()
+foreach($root in $roots) { if (Test-Path $root) { $allFiles += Get-ChildItem -LiteralPath $root -File -Recurse -Force -ErrorAction SilentlyContinue } }
+
+if ($allFiles.Count -gt 0) {
+    $i = 0
+    foreach ($f in $allFiles) {
+        $i++
+        Show-Progress ([math]::Round(($i/$allFiles.Count)*100))
+        foreach($k in $highSignal) { 
+            if($f.Name -like "*$k*") { Add-Result FAIL "Keyword file: $($f.FullName)"; break } 
         }
     }
+} else {
+    for($i=0; $i -le 100; $i+=10) { Show-Progress $i; Start-Sleep -Milliseconds 20 }
 }
-Write-Result SAFE "Keyword scan complete."
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No keyword file matches found." }
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 6 - Forensic Tools (ALL Files Listed)"
+# STEP 6 - Forensic Tools (ALL Files Listed)
+# =============================================================================
+Write-Host "=== STEP 6 - Forensic Tools ===" -ForegroundColor Cyan
 $tools = @('BAMParser', 'SavedFilesViewer', 'MFTExplorer', 'DeletedFiles', 'PrefetchViewer', 'ProcessExplorer', 'procexp', 'KAPE')
-$tRoots = @("C:\", "$env:USERPROFILE\Desktop", "$env:USERPROFILE\Downloads", "C:\Tools")
+$drives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -ExpandProperty DeviceID
+$i = 0
 $foundAny = $false
 foreach($tn in $tools) {
-    foreach($r in $tRoots) {
-        if (Test-Path $r) {
-            $foundFiles = Get-ChildItem -Path $r -Filter "*$tn*" -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll', '.msi' }
-            foreach ($f in $foundFiles) {
-                $foundAny = $true
-                $trusted = Test-TrustedSigner -FilePath $f.FullName
-                if($trusted) { 
-                    Write-Result SAFE "[$tn] $($f.FullName) (Trusted)" 
-                } elseif($lastLogon -and $f.LastWriteTime -gt $lastLogon) { 
-                    Write-Result FAIL "[$tn] $($f.FullName) (Modified after logon!)" 
-                } else { 
-                    Write-Result WARN "[$tn] $($f.FullName) (Untrusted/Unknown)" 
-                }
-            }
+    $i++
+    Show-Progress ([math]::Round(($i / $tools.Count) * 100))
+    foreach($d in $drives) {
+        $foundFiles = Get-ChildItem -Path "$d\" -Filter "*$tn*" -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll', '.msi' }
+        foreach ($f in $foundFiles) {
+            $foundAny = $true
+            $trusted = Test-TrustedSigner -FilePath $f.FullName
+            if($trusted) { Add-Result SAFE "[$tn] $($f.FullName) (Trusted)" } 
+            elseif($lastLogon -and $f.LastWriteTime -gt $lastLogon) { Add-Result FAIL "[$tn] $($f.FullName) (Modified after logon!)" } 
+            else { Add-Result WARN "[$tn] $($f.FullName) (Untrusted)" }
         }
     }
 }
-if (-not $foundAny) { Write-Result SAFE "No forensic tool files found." }
+if (-not $foundAny) { Add-Result SAFE "No forensic tool files found." }
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 7 - Amcache & Shimcache"
+# STEP 7 - Amcache & Shimcache
+# =============================================================================
+Write-Host "=== STEP 7 - Amcache & Shimcache ===" -ForegroundColor Cyan
+Show-Progress 50
 $amc = "C:\Windows\AppCompat\Programs\Amcache.hve"
-if(Test-Path $amc) { Copy-Item $amc "$Out\Amcache.hve" -Force; Write-Result WARN "Amcache exported to output folder." }
-
+if(Test-Path $amc) { Copy-Item $amc "$Out\Amcache.hve" -Force; Add-Result WARN "Amcache exported to output folder." }
+Show-Progress 75
 try {
     $shim = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache' -Name AppCompatCache -ErrorAction Stop).AppCompatCache
     $shimStr = -join ($shim | ForEach-Object { [char]$_ })
     $shimExes = [regex]::Matches($shimStr, '[a-zA-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\.exe') | ForEach-Object { $_.Value } | Select-Object -Unique
-    if ($shimExes) { foreach ($exe in $shimExes) { Write-Result INFO "[Shimcache] $exe" } }
-} catch { Write-Result WARN "Shimcache parse failed." }
+    if ($shimExes) { foreach ($exe in $shimExes) { Add-Result INFO "[Shimcache] $exe" } }
+} catch { Add-Result WARN "Shimcache parse failed." }
+Show-Progress 100
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 8 - BAM / DAM (Red for suspicious)"
+# STEP 8 - BAM / DAM
+# =============================================================================
+Write-Host "=== STEP 8 - BAM / DAM ===" -ForegroundColor Cyan
+Show-Progress 20
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $bam = @("SYSTEM\CurrentControlSet\Services\bam\State\UserSettings\$sid", "SYSTEM\CurrentControlSet\Services\dam\State\UserSettings\$sid")
 $bE = @()
@@ -271,48 +302,51 @@ foreach($bp in $bam) {
         }
     } catch {}
 }
+Show-Progress 80
 if($bE.Count) {
     foreach($b in $bE) {
-        if (Test-TrustedSigner -FilePath $b.Path) { 
-            Write-Result SAFE "[BAM] $($b.Path) @ $($b.LastExec)" 
-        } else {
+        if (Test-TrustedSigner -FilePath $b.Path) { Add-Result SAFE "[BAM] $($b.Path) @ $($b.LastExec)" } 
+        else {
             $hit = $false
             foreach($k in $highSignal) { if($b.Path -like "*$k*") { $hit = $true; break } }
-            if ($hit) { 
-                Write-Result FAIL "[BAM] Cheat match: $($b.Path) @ $($b.LastExec)" 
-            } else { 
-                Write-Result FAIL "[BAM] Untrusted Execution: $($b.Path) @ $($b.LastExec)" 
-            }
+            if ($hit) { Add-Result FAIL "[BAM] Cheat match: $($b.Path) @ $($b.LastExec)" } 
+            else { Add-Result FAIL "[BAM] Untrusted Execution: $($b.Path) @ $($b.LastExec)" }
         }
     }
-}
+} else { Add-Result SAFE "BAM/DAM empty or unreadable." }
+Show-Progress 100
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "STEP 9 - Defender Detailed"
+# STEP 9 - Defender Detailed
+# =============================================================================
+Write-Host "=== STEP 9 - Defender Detailed ===" -ForegroundColor Cyan
+Show-Progress 25
 try {
     $mp = Get-MpComputerStatus
     $off = @()
     if(-not $mp.RealTimeProtectionEnabled) { $off += 'RealTimeProtection' }
     if(-not $mp.AntivirusEnabled) { $off += 'Antivirus' }
-    if($off.Count -gt 0) { Write-Result FAIL "Defender DISABLED: $($off -join ', ')" }
-    else { Write-Result SAFE "Defender enabled." }
+    if($off.Count -gt 0) { Add-Result FAIL "Defender DISABLED: $($off -join ', ')" } else { Add-Result SAFE "Defender enabled." }
 } catch {}
-
+Show-Progress 50
 try {
     $pref = Get-MpPreference
-    if($pref.ExclusionPath) { foreach($e in $pref.ExclusionPath) { Write-Result FAIL "Defender Exclusion: $e" } }
-    else { Write-Result SAFE "No Defender exclusions." }
+    if($pref.ExclusionPath) { foreach($e in $pref.ExclusionPath) { Add-Result FAIL "Defender Exclusion: $e" } } else { Add-Result SAFE "No Defender exclusions." }
 } catch {}
-
+Show-Progress 75
 try {
     $threats = @(Get-MpThreatDetection)
-    if($threats.Count -gt 0) { foreach($t in $threats) { Write-Result FAIL "Defender Threat: $($t.ThreatID) -> $($t.Resources)" } }
-    else { Write-Result SAFE "No Defender threats." }
+    if($threats.Count -gt 0) { foreach($t in $threats) { Add-Result FAIL "Defender Threat: $($t.ThreatID)" } } else { Add-Result SAFE "No Defender threats." }
 } catch {}
+Show-Progress 100
+Flush-Results; Wait-Pager
 
 # =============================================================================
-Write-Section "SUMMARY"
+# SUMMARY
+# =============================================================================
+Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
 Write-Host "`n SAFE: $($script:safeCount) WARN: $($script:warnCount) FAIL: $($script:failCount)`n" -ForegroundColor Cyan
-Write-Result INFO "Report: $ReportPath"
-Write-Result INFO "made-by-kemo | v5.1 | finished $(Get-Date)"
+Write-Host "Report: $ReportPath" -ForegroundColor Cyan
+Write-Host "made-by-kemo | v5.2 | finished $(Get-Date)" -ForegroundColor Cyan
 Write-Host "`n=== made-by-kemo | done ===`n" -ForegroundColor Cyan
