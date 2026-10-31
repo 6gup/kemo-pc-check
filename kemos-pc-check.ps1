@@ -1,5 +1,5 @@
 # =============================================================================
-#  made-by-kemo | PC Forensic Check v7.0 (Ultimate Structured Edition)
+#  made-by-kemo | PC Forensic Check v8.0 (26 Granular Steps)
 #  made-by-kemo | Run as Administrator.
 # =============================================================================
 $ErrorActionPreference = 'SilentlyContinue'
@@ -57,7 +57,7 @@ Clear-Host
 $Out = "$env:USERPROFILE\Desktop\PC-Check"
 $ReportPath = Join-Path $Out "report.txt"
 New-Item -ItemType Directory -Path $Out -Force | Out-Null
-"made-by-kemo | v7.0 | started $(Get-Date) | User: $user" | Out-File $ReportPath
+"made-by-kemo | v8.0 | started $(Get-Date) | User: $user" | Out-File $ReportPath
 $script:failCount = 0; $script:warnCount = 0; $script:safeCount = 0
 $script:Buffer = @()
 
@@ -94,19 +94,7 @@ function Wait-Pager {
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if(-not $isAdmin) { Add-Result WARN "Not elevated - results may be limited." }
 
-$trustedSigners = @(
-    'Logitech', 'Logitech Inc', 'Logitech Europe S.A.', 'Microsoft', 'Microsoft Corporation', 'Microsoft Windows',
-    'NVIDIA', 'NVIDIA Corporation', 'AMD', 'Advanced Micro Devices', 'Advanced Micro Devices, Inc.', 'Intel', 'Intel Corporation',
-    'Realtek', 'Realtek Semiconductor', 'Razer', 'Razer Inc', 'Corsair', 'Corsair Memory', 'SteelSeries', 'SteelSeries ApS',
-    'Valve', 'Valve Corp', 'Valve Corporation', 'Epic Games', 'Epic Games, Inc.', 'Blizzard', 'Blizzard Entertainment',
-    'Riot Games', 'Riot Games, Inc.', 'Google', 'Google LLC', 'Mozilla', 'Mozilla Corporation', 'Discord', 'Discord Inc.',
-    'Spotify', 'Spotify AB', 'Dropbox', 'Dropbox, Inc', 'Apple', 'Apple Inc.', 'Adobe', 'Adobe Inc.', 'Adobe Systems',
-    'Oracle', 'Oracle America', 'VMware', 'VMware, Inc.', 'Malwarebytes', 'Malwarebytes Corporation', 'Bitdefender', 'Bitdefender SRL',
-    'Kaspersky', 'Kaspersky Lab', 'ESET', 'ESET, spol. s r.o.', 'Avast', 'Avast Software', 'AVG', 'AVG Technologies',
-    'CCleaner', 'Piriform', 'Java', 'Oracle America, Inc.', 'Python', 'Python Software Foundation', 'GitHub', 'GitHub, Inc.',
-    'JetBrains', 'JetBrains s.r.o.', 'Zoom', 'Zoom Video Communications', 'Slack', 'Slack Technologies', 'TeamViewer', 'TeamViewer Germany GmbH',
-    'AnyDesk', 'AnyDesk Software GmbH'
-)
+$trustedSigners = @('Logitech', 'Microsoft', 'NVIDIA', 'AMD', 'Intel', 'Realtek', 'Razer', 'Corsair', 'SteelSeries', 'Valve', 'Epic Games', 'Blizzard', 'Riot Games', 'Google', 'Mozilla', 'Discord', 'Spotify', 'Dropbox', 'Apple', 'Adobe', 'Oracle', 'VMware', 'Malwarebytes', 'Bitdefender', 'Kaspersky', 'ESET', 'Avast', 'AVG', 'CCleaner', 'Java', 'Python', 'GitHub', 'JetBrains', 'Zoom', 'Slack', 'TeamViewer', 'AnyDesk')
 
 function Test-TrustedSigner {
     param([string]$FilePath)
@@ -131,9 +119,7 @@ for($i=0; $i -le 100; $i+=10) { Show-Progress $i; Start-Sleep -Milliseconds 30 }
 try {
     Get-ComputerInfo | Out-File "$Out\system-info.txt"
     $volSerial = (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").VolumeSerialNumber
-    $biosSerial = (Get-CimInstance Win32_BIOS).SerialNumber
-    $baseboard = (Get-CimInstance Win32_BaseBoard).SerialNumber
-    $hwidData = "=== HWID ===`nMachine GUID: $mGuid`nBIOS: $biosSerial`nMotherboard: $baseboard`nCPU ID: $cpuId`nC: Serial: $volSerial"
+    $hwidData = "=== HWID ===`nMachine GUID: $mGuid`nCPU ID: $cpuId`nC: Serial: $volSerial"
     $hwidData | Out-File "$Out\hwid.txt" -Force
     Add-Result SAFE "HWID logged to hwid.txt"
 } catch { Add-Result WARN "System info failed: $_" }
@@ -163,9 +149,26 @@ if ($cfgFiles.Count -gt 0) {
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 3 - File System: Keywords, ADS & Entropy
+# STEP 3 - Bloodhound Detection (OBS Plugin Templates)
 # =============================================================================
-Write-Host "=== STEP 3 - File System (Keywords, ADS, Entropy) ===" -ForegroundColor Cyan
+Write-Host "=== STEP 3 - Bloodhound Detection ===" -ForegroundColor Cyan
+Show-Progress 50
+$obsPaths = @("$env:APPDATA\obs-studio", "$env:ProgramFiles\obs-studio", "${env:ProgramFiles(x86)}\obs-studio")
+$bhFound = $false
+foreach ($p in $obsPaths) {
+    if (Test-Path $p) {
+        $bhFolder = Get-ChildItem -Path $p -Filter "*obs plugin templates*" -Directory -Recurse -ErrorAction SilentlyContinue
+        if ($bhFolder) { Add-Result FAIL "Bloodhound detected! OBS folder found at: $($bhFolder.FullName). Used to hide cheat overlay."; $bhFound = $true }
+    }
+}
+if (-not $bhFound) { Add-Result SAFE "No 'obs plugin templates' folder found." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 4 - File System: Keywords, ADS & Entropy
+# =============================================================================
+Write-Host "=== STEP 4 - File System (Keywords, ADS, Entropy) ===" -ForegroundColor Cyan
 $csharpEntropy = @"
 using System; using System.IO;
 public class KemoEntropy {
@@ -184,7 +187,6 @@ public class KemoEntropy {
 }
 "@
 try { Add-Type -TypeDefinition $csharpEntropy -ErrorAction Stop } catch {}
-
 $roots = @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:TEMP", "C:\ProgramData")
 $allFiles = @()
 foreach($root in $roots) { if (Test-Path $root) { $allFiles += Get-ChildItem -LiteralPath $root -Recurse -Force -Include *.exe, *.dll, *.bat, *.cmd, *.ps1, *.vbs -ErrorAction SilentlyContinue } }
@@ -192,26 +194,22 @@ $i = 0; $total = [math]::Max(1, $allFiles.Count)
 foreach ($f in $allFiles) {
     $i++; Show-Progress ([math]::Round(($i/$total)*100))
     foreach($k in $highSignal) { if($f.Name -like "*$k*") { Add-Result FAIL "Keyword file: $($f.FullName)"; break } }
-    $streams = Get-Item -LiteralPath $f.FullName -Stream * -ErrorAction SilentlyContinue | Where-Object { $_.Stream -ne ':$DATA' }
-    if ($streams) { Add-Result WARN "Alternate Data Stream: $($f.FullName)" }
-    if ($f.Length -gt 100KB) {
-        try { $ent = [KemoEntropy]::GetEntropy($f.FullName); if ($ent -gt 7.2) { Add-Result WARN "High Entropy (Packed): $($f.FullName) ($([math]::Round($ent,2)))" } } catch {}
-    }
+    if (Get-Item -LiteralPath $f.FullName -Stream * -ErrorAction SilentlyContinue | Where-Object { $_.Stream -ne ':$DATA' }) { Add-Result WARN "ADS found: $($f.FullName)" }
+    if ($f.Length -gt 100KB) { try { $ent = [KemoEntropy]::GetEntropy($f.FullName); if ($ent -gt 7.2) { Add-Result WARN "High Entropy (Packed): $($f.FullName)" } } catch {} }
 }
 if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious files, ADS, or packed executables found." }
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 4 - Process & Memory Integrity (RWX & DLL Injections)
+# STEP 5 - Process & Memory Integrity (RWX & DLL Injections)
 # =============================================================================
-Write-Host "=== STEP 4 - Process & Memory Integrity ===" -ForegroundColor Cyan
+Write-Host "=== STEP 5 - Process & Memory Integrity ===" -ForegroundColor Cyan
 $csharpMem = @"
 using System; using System.Runtime.InteropServices;
 public class MemScan {
     [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
     [DllImport("kernel32.dll")] public static extern bool VirtualQueryEx(IntPtr hProcess, IntPtr lpAddress, out MEMORY_BASIC_INFORMATION lpBuffer, uint dwLength);
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MEMORY_BASIC_INFORMATION { public IntPtr BaseAddress; public IntPtr AllocationBase; public uint AllocationProtect; public IntPtr RegionSize; public uint State; public uint Protect; public uint Type; }
+    [StructLayout(LayoutKind.Sequential)] public struct MEMORY_BASIC_INFORMATION { public IntPtr BaseAddress; public IntPtr AllocationBase; public uint AllocationProtect; public IntPtr RegionSize; public uint State; public uint Protect; public uint Type; }
     public static int ScanRWX(int pid) {
         IntPtr h = OpenProcess(0x0410, false, pid); if(h == IntPtr.Zero) return -1;
         IntPtr addr = IntPtr.Zero; int count = 0; MEMORY_BASIC_INFORMATION mbi;
@@ -224,26 +222,20 @@ public class MemScan {
 }
 "@
 try { Add-Type -TypeDefinition $csharpMem -ErrorAction Stop } catch {}
-
 $procs = Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath
 $i = 0
 foreach($p in $procs) {
     $i++; Show-Progress ([math]::Round(($i/$procs.Count)*100))
     if(-not $p.ExecutablePath) { continue }
     if(-not (Test-TrustedSigner -FilePath $p.ExecutablePath)) {
-        $sig = Get-AuthenticodeSignature -FilePath $p.ExecutablePath -ErrorAction SilentlyContinue
-        if ($sig.Status -ne 'Valid') { Add-Result WARN "UNSIGNED Process: $($p.Name)" }
+        if ((Get-AuthenticodeSignature -FilePath $p.ExecutablePath).Status -ne 'Valid') { Add-Result WARN "UNSIGNED Process: $($p.Name)" }
     }
-    if (Get-Command MemScan -ErrorAction SilentlyContinue) {
-        $rwx = [MemScan]::ScanRWX($p.ProcessId)
-        if ($rwx -gt 5) { Add-Result FAIL "Suspicious RWX Memory ($rwx regions) in: $($p.Name)" }
-    }
+    if (Get-Command MemScan -ErrorAction SilentlyContinue) { $rwx = [MemScan]::ScanRWX($p.ProcessId); if ($rwx -gt 5) { Add-Result FAIL "RWX Memory in: $($p.Name)" } }
     if ($p.Name -match 'csgo|cs2|valorant|fortnite|r5apex|rust|escapefromtarkov|RobloxPlayerBeta') {
         $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
         foreach ($mod in $proc.Modules) {
             if (-not (Test-TrustedSigner -FilePath $mod.FileName)) {
-                $msig = Get-AuthenticodeSignature -FilePath $mod.FileName -ErrorAction SilentlyContinue
-                if ($msig.Status -ne 'Valid') { Add-Result FAIL "Unsigned DLL injected into $($p.Name): $($mod.ModuleName)" }
+                if ((Get-AuthenticodeSignature -FilePath $mod.FileName).Status -ne 'Valid') { Add-Result FAIL "Unsigned DLL in $($p.Name): $($mod.ModuleName)" }
             }
         }
     }
@@ -252,58 +244,20 @@ if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No unsigned processes, RWX me
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 5 - Roblox Specific Checks
-# =============================================================================
-Write-Host "=== STEP 5 - Roblox Specific Checks ===" -ForegroundColor Cyan
-Show-Progress 25
-$roblox = Get-Process -Name "RobloxPlayerBeta" -ErrorAction SilentlyContinue
-if ($roblox) {
-    $injectors = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'xeno|volt|injector|cheat|mem|read|wrd|krnl' }
-    if ($injectors) { foreach ($inj in $injectors) { Add-Result FAIL "Potential Roblox Injector running: $($inj.Name)" } }
-} else { Add-Result SAFE "Roblox is not currently running." }
-
-Show-Progress 50
-$rbxVersions = "$env:LOCALAPPDATA\Roblox\Versions"
-if (Test-Path $rbxVersions) {
-    $settings = Get-ChildItem -Path $rbxVersions -Filter "ClientAppSettings.json" -File -Recurse -ErrorAction SilentlyContinue
-    foreach ($s in $settings) {
-        Add-Result WARN "Roblox ClientAppSettings.json found (Potential FPS Unlock/ESP): $($s.FullName)"
-        if ((Get-Content $s.FullName -Raw) -match 'DFIntTaskSchedulerTargetFps|FpsCap|DisableAAC') { Add-Result FAIL "Roblox settings tampered (FPS Unlock / AAC Bypass)" }
-    }
-}
-Show-Progress 75
-$rbxDirs = @("$env:LOCALAPPDATA\Roblox", "$env:LOCALAPPDATA\Temp", "$env:USERPROFILE\Downloads")
-foreach ($dir in $rbxDirs) {
-    if (Test-Path $dir) {
-        $scripts = Get-ChildItem -Path $dir -Recurse -Include *.lua, *.asi, *.dll -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'inject|execut|krnl|xeno|fluxus|synapse|script' }
-        foreach ($s in $scripts) { Add-Result FAIL "Potential Roblox Executor file found: $($s.FullName)" }
-    }
-}
-Show-Progress 100
-if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No Roblox executor files or tampering found." }
-Flush-Results; Wait-Pager
-
-# =============================================================================
 # STEP 6 - DLL Viewer & Deleted Traces
 # =============================================================================
 Write-Host "=== STEP 6 - DLL Viewer & Deleted Traces ===" -ForegroundColor Cyan
-$dllDirs = @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:TEMP", "C:\ProgramData")
 $i = 0; $foundDll = $false
-foreach ($d in $dllDirs) {
+foreach ($d in @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:TEMP", "C:\ProgramData")) {
     if (Test-Path $d) {
-        $dlls = Get-ChildItem -Path $d -Filter "*.dll" -File -Recurse -Force -ErrorAction SilentlyContinue
-        foreach ($dll in $dlls) {
-            $i++; Show-Progress ([math]::Round(($i / ($dlls.Count + 20)) * 100))
-            if (-not (Test-TrustedSigner -FilePath $dll.FullName)) {
-                if ((Get-AuthenticodeSignature -FilePath $dll.FullName).Status -ne 'Valid') { Add-Result FAIL "Unsigned DLL: $($dll.FullName)"; $foundDll = $true }
-            }
+        foreach ($dll in (Get-ChildItem -Path $d -Filter "*.dll" -File -Recurse -Force -ErrorAction SilentlyContinue)) {
+            $i++; Show-Progress ([math]::Round(($i / 50) * 100))
+            if ((Get-AuthenticodeSignature -FilePath $dll.FullName).Status -ne 'Valid' -and -not (Test-TrustedSigner -FilePath $dll.FullName)) { Add-Result FAIL "Unsigned DLL: $($dll.FullName)"; $foundDll = $true }
         }
     }
 }
-$recycleDirs = Get-ChildItem 'C:\$Recycle.Bin' -Directory -Force -ErrorAction SilentlyContinue
-foreach ($dir in $recycleDirs) {
-    $iFiles = Get-ChildItem -Path $dir.FullName -Filter '$I*' -File -Force -ErrorAction SilentlyContinue
-    foreach ($iFile in $iFiles) {
+foreach ($dir in (Get-ChildItem 'C:\$Recycle.Bin' -Directory -Force -ErrorAction SilentlyContinue)) {
+    foreach ($iFile in (Get-ChildItem -Path $dir.FullName -Filter '$I*' -File -Force -ErrorAction SilentlyContinue)) {
         if ($iFile.Length -gt 24) {
             $bytes = [System.IO.File]::ReadAllBytes($iFile.FullName)
             $origPath = [System.Text.Encoding]::Unicode.GetString($bytes[28..($bytes.Length - 2)]).Trim([char]0)
@@ -316,74 +270,71 @@ Show-Progress 100
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 7 - Execution History (Amcache, Shimcache, BAM, UserAssist)
+# STEP 7 - Artifacts & Deleted Files Viewer
 # =============================================================================
-Write-Host "=== STEP 7 - Execution History ===" -ForegroundColor Cyan
-Show-Progress 20
-$amc = "C:\Windows\AppCompat\Programs\Amcache.hve"
-if(Test-Path $amc) { Copy-Item $amc "$Out\Amcache.hve" -Force; Add-Result WARN "Amcache exported to output folder." }
-Show-Progress 40
+Write-Host "=== STEP 7 - Artifacts & Deleted Files Viewer ===" -ForegroundColor Cyan
+Show-Progress 50
+$rbFiles = Get-ChildItem 'C:\$Recycle.Bin' -Force -Recurse -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer -and $_.Name -notlike '$I*' -and $_.Name -ne 'desktop.ini' }
+if ($rbFiles) { foreach ($rb in $rbFiles) { Add-Result WARN "Deleted File: $($rb.FullName) (Deleted: $($rb.LastWriteTime))" } } else { Add-Result SAFE "Recycle Bin is empty." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 8 - Execution History (Amcache, Shimcache, BAM)
+# =============================================================================
+Write-Host "=== STEP 8 - Execution History (BAM/Shimcache) ===" -ForegroundColor Cyan
+Show-Progress 30
+if(Test-Path "C:\Windows\AppCompat\Programs\Amcache.hve") { Copy-Item "C:\Windows\AppCompat\Programs\Amcache.hve" "$Out\Amcache.hve" -Force; Add-Result WARN "Amcache exported." }
+Show-Progress 60
 try {
     $shim = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache' -Name AppCompatCache -ErrorAction Stop).AppCompatCache
-    $shimExes = [regex]::Matches((-join ($shim | ForEach-Object { [char]$_ })), '[a-zA-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\.exe') | ForEach-Object { $_.Value } | Select-Object -Unique
-    foreach ($exe in $shimExes) { Add-Result INFO "[Shimcache] $exe" }
+    foreach ($exe in ([regex]::Matches((-join ($shim | ForEach-Object { [char]$_ })), '[a-zA-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\.exe') | ForEach-Object { $_.Value } | Select-Object -Unique)) { Add-Result INFO "[Shimcache] $exe" }
 } catch {}
-Show-Progress 60
+Show-Progress 90
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$bam = @("SYSTEM\CurrentControlSet\Services\bam\State\UserSettings\$sid", "SYSTEM\CurrentControlSet\Services\dam\State\UserSettings\$sid")
-foreach($bp in $bam) {
+foreach($bp in @("SYSTEM\CurrentControlSet\Services\bam\State\UserSettings\$sid", "SYSTEM\CurrentControlSet\Services\dam\State\UserSettings\$sid")) {
     try {
         $k = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($bp)
-        if($k) {
-            foreach($vn in $k.GetValueNames()) {
-                $d = $k.GetValue($vn)
-                if($d -is [byte[]] -and $d.Length -ge 8) {
-                    if (Test-TrustedSigner -FilePath $vn) { Add-Result SAFE "[BAM] $vn" } else { Add-Result FAIL "[BAM] Untrusted Execution: $vn" }
-                }
-            }
-            $k.Close()
-        }
+        if($k) { foreach($vn in $k.GetValueNames()) { $d = $k.GetValue($vn); if($d -is [byte[]] -and $d.Length -ge 8) { if (Test-TrustedSigner -FilePath $vn) { Add-Result SAFE "[BAM] $vn" } else { Add-Result FAIL "[BAM] Untrusted Execution: $vn" } } }; $k.Close() }
     } catch {}
-}
-Show-Progress 80
-function Decode-Rot13($str) { $chars = $str.ToCharArray(); for ($i = 0; $i -lt $chars.Length; $i++) { $c = $chars[$i]; if ($c -match '[a-z]') { $chars[$i] = [char]((([int]$c - 97 + 13) % 26) + 97) } elseif ($c -match '[A-Z]') { $chars[$i] = [char]((([int]$c - 65 + 13) % 26) + 65) } }; return -join $chars }
-$uaPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
-foreach ($guid in (Get-ChildItem $uaPath -ErrorAction SilentlyContinue)) {
-    $countKey = "$($guid.PSPath)\Count"
-    if (Test-Path $countKey) {
-        $props = Get-ItemProperty $countKey -ErrorAction SilentlyContinue
-        foreach ($p in $props.PSObject.Properties) {
-            if ($p.Name -notmatch '^PS') {
-                $decoded = Decode-Rot13 $p.Name
-                if ($decoded -match '\.exe|\.cfg') {
-                    foreach ($k in $highSignal) { if ($decoded -match "(?i)$k") { Add-Result FAIL "Deleted/Executed Cheat Trace (UserAssist): $decoded" } }
-                }
-            }
-        }
-    }
 }
 Show-Progress 100
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 8 - Jump Lists & Recent Artifacts
+# STEP 9 - Execution History (UserAssist ROT13)
 # =============================================================================
-Write-Host "=== STEP 8 - Jump Lists & Recent Files ===" -ForegroundColor Cyan
+Write-Host "=== STEP 9 - Deleted Execution History (UserAssist) ===" -ForegroundColor Cyan
+Show-Progress 50
+function Decode-Rot13($str) { $chars = $str.ToCharArray(); for ($i = 0; $i -lt $chars.Length; $i++) { $c = $chars[$i]; if ($c -match '[a-z]') { $chars[$i] = [char]((([int]$c - 97 + 13) % 26) + 97) } elseif ($c -match '[A-Z]') { $chars[$i] = [char]((([int]$c - 65 + 13) % 26) + 65) } }; return -join $chars }
+$foundUA = $false
+foreach ($guid in (Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist" -ErrorAction SilentlyContinue)) {
+    $countKey = "$($guid.PSPath)\Count"
+    if (Test-Path $countKey) {
+        foreach ($p in (Get-ItemProperty $countKey -ErrorAction SilentlyContinue).PSObject.Properties) {
+            if ($p.Name -notmatch '^PS') {
+                $decoded = Decode-Rot13 $p.Name
+                if ($decoded -match '\.exe|\.cfg') { foreach ($k in $highSignal) { if ($decoded -match "(?i)$k") { Add-Result FAIL "Deleted/Executed Cheat Trace (UserAssist): $decoded"; $foundUA = $true } } }
+            }
+        }
+    }
+}
+if (-not $foundUA) { Add-Result SAFE "No cheat traces found in UserAssist." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 10 - Jump Lists & Recent Artifacts
+# =============================================================================
+Write-Host "=== STEP 10 - Jump Lists & Recent Files ===" -ForegroundColor Cyan
 Show-Progress 50
 $foundAny = $false
-$recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
-if (Test-Path $recentPath) {
-    $lnks = Get-ChildItem -Path $recentPath -Filter "*.lnk" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 10
-    foreach ($lnk in $lnks) { Add-Result INFO "Recent file: $($lnk.Name) (Accessed: $($lnk.LastWriteTime))"; $foundAny = $true }
-}
 $jumpListPath = "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations"
 if (Test-Path $jumpListPath) {
     foreach ($jl in (Get-ChildItem -Path $jumpListPath -File -ErrorAction SilentlyContinue)) {
         $txt = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($jl.FullName)) + [System.Text.Encoding]::Unicode.GetString([System.IO.File]::ReadAllBytes($jl.FullName))
-        foreach ($exe in ([regex]::Matches($txt, '[a-zA-Z0-9_\-\. ]+\.exe') | Select-Object -ExpandProperty Value | Select-Object -Unique)) { if ($exe.Length -gt 5) { Add-Result INFO "Recent EXE opened: $exe"; $foundAny = $true } }
-        foreach ($cfg in ([regex]::Matches($txt, '[a-zA-Z0-9_\-\. ]+\.cfg') | Select-Object -ExpandProperty Value | Select-Object -Unique)) { 
-            if ($cfg.Length -gt 5) { $foundAny = $true; if ($cfg -match '(?i)aimbot|esp') { Add-Result FAIL "Recent CFG with keyword: $cfg" } else { Add-Result INFO "Recent CFG opened: $cfg" } }
-        }
+        foreach ($exe in ([regex]::Matches($txt, '[a-zA-Z0-9_\-\. ]+\.exe') | Select-Object -ExpandProperty Value | Select-Object -Unique)) { if ($exe.Length -gt 5) { Add-Result INFO "Recent EXE: $exe"; $foundAny = $true } }
+        foreach ($cfg in ([regex]::Matches($txt, '[a-zA-Z0-9_\-\. ]+\.cfg') | Select-Object -ExpandProperty Value | Select-Object -Unique)) { if ($cfg.Length -gt 5) { $foundAny = $true; if ($cfg -match '(?i)aimbot|esp') { Add-Result FAIL "Recent CFG with keyword: $cfg" } else { Add-Result INFO "Recent CFG: $cfg" } } }
     }
 }
 if (-not $foundAny) { Add-Result SAFE "No recent artifacts found." }
@@ -391,124 +342,124 @@ Show-Progress 100
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 9 - Network, DNS & KeyAuth History
+# STEP 11 - Network, DNS & KeyAuth History
 # =============================================================================
-Write-Host "=== STEP 9 - Network, DNS & KeyAuth History ===" -ForegroundColor Cyan
-Show-Progress 20
+Write-Host "=== STEP 11 - Network, DNS & KeyAuth History ===" -ForegroundColor Cyan
+Show-Progress 30
 $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
 if ((Get-Item $hostsFile).LastWriteTime -gt (Get-Date).AddDays(-2)) { Add-Result WARN "Hosts file recently modified." }
 if (Select-String -Path $hostsFile -Pattern 'keyauth|cheat|aimbot' -ErrorAction SilentlyContinue) { Add-Result FAIL "Suspicious hosts entry found." }
-Show-Progress 40
-$dnsHits = @()
-foreach($d in (Get-DnsClientCache -ErrorAction SilentlyContinue)) { 
-    if ($d.Entry -match 'keyauth|auth\.keyauth|keyauth\.win|cheat|aimbot') { Add-Result FAIL "Suspicious DNS Cache: $($d.Entry) -> $($d.Data)"; $dnsHits += $d.Entry } 
-}
 Show-Progress 60
+foreach($d in (Get-DnsClientCache -ErrorAction SilentlyContinue)) { if ($d.Entry -match 'keyauth|auth\.keyauth|keyauth\.win|cheat|aimbot') { Add-Result FAIL "Suspicious DNS Cache: $($d.Entry) -> $($d.Data)" } }
+Show-Progress 90
 $psHist = "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
-if (Test-Path $psHist) {
-    $histHits = Select-String -Path $psHist -Pattern 'keyauth|aimbot|esp|inject' -ErrorAction SilentlyContinue
-    foreach ($h in $histHits) { Add-Result FAIL "PowerShell History KeyAuth Trace: $($h.Line.Trim())" }
-}
-Show-Progress 80
-$rules = Get-NetFirewallRule -Direction Outbound -Action Allow -Enabled True -ErrorAction SilentlyContinue | Get-NetFirewallApplicationFilter
-foreach ($r in $rules) {
-    if ($r.Program -match 'Temp|AppData|Downloads|Public' -and $r.Program -match '\.exe') { Add-Result WARN "Suspicious Outbound Firewall Rule: $($r.Program)" }
-}
+if (Test-Path $psHist) { foreach ($h in (Select-String -Path $psHist -Pattern 'keyauth|aimbot|esp|inject' -ErrorAction SilentlyContinue)) { Add-Result FAIL "PS History KeyAuth Trace: $($h.Line.Trim())" } }
 Show-Progress 100
 if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious network, DNS, or KeyAuth traces found." }
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 10 - Hardware, DMA & Vulnerable Drivers (BYOVD)
+# STEP 12 - USB Executables & Injection Traces
 # =============================================================================
-Write-Host "=== STEP 10 - Hardware & Vulnerable Drivers ===" -ForegroundColor Cyan
+Write-Host "=== STEP 12 - USB Executables & Injection ===" -ForegroundColor Cyan
+Show-Progress 30
+if ((Get-CimInstance Win32_LogicalDisk -Filter "DriveType=2")) { Add-Result WARN "USB Drives currently attached: $((Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2').DeviceID -join ', ')" }
+$pf = Get-ChildItem "C:\Windows\Prefetch" -Filter "*.pf" -ErrorAction SilentlyContinue
+foreach ($p in $pf) { if ($p.Name -match '^VOLUME_') { Add-Result WARN "USB EXE Executed: $($p.Name)" } }
+Show-Progress 70
+try {
+    $sec = @(Get-WinEvent -FilterHashtable @{ LogName='Security'; Id=4688; StartTime=(Get-Date).AddDays(-7) } -MaxEvents 1000 -ErrorAction SilentlyContinue)
+    $usbHits = 0
+    foreach ($ev in $sec) { if ($ev.Message -match 'New Process Name:\s+([D-Z]:\\.+\.exe)') { Add-Result FAIL "EXE from USB (Event 4688): $($matches[1].Trim())"; $usbHits++ } }
+    if ($usbHits -eq 0) { Add-Result SAFE "No USB EXE execution found in Event Logs." }
+} catch {}
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 13 - Hardware, DMA & Vulnerable Drivers (BYOVD)
+# =============================================================================
+Write-Host "=== STEP 13 - Hardware & Vulnerable Drivers ===" -ForegroundColor Cyan
 Show-Progress 30
 $vulnDrivers = @('iqvw64e.sys', 'gdrv.sys', 'winring0.sys', 'ene.sys', 'asio.sys', 'msio.sys', 'cpuz.sys', 'kfridge.sys', 'rtcore64.sys')
-foreach ($d in (Get-ChildItem "$env:SystemRoot\System32\drivers" -Filter "*.sys" -ErrorAction SilentlyContinue)) { if ($vulnDrivers -contains $d.Name.ToLower()) { Add-Result FAIL "Vulnerable Driver (BYOVD) found: $($d.FullName)" } }
+foreach ($d in (Get-ChildItem "$env:SystemRoot\System32\drivers" -Filter "*.sys" -ErrorAction SilentlyContinue)) { if ($vulnDrivers -contains $d.Name.ToLower()) { Add-Result FAIL "Vulnerable Driver (BYOVD): $($d.FullName)" } }
 Show-Progress 70
-$bcd = (bcdedit /enum {current}) -join "`n"
-if ($bcd -match 'testsigning\s+Yes') { Add-Result FAIL "Windows Test Signing is ENABLED." }
+if (((bcdedit /enum {current}) -join "`n") -match 'testsigning\s+Yes') { Add-Result FAIL "Windows Test Signing is ENABLED." }
 Show-Progress 100
 if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No vulnerable drivers or Test Signing found." }
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 11 - Unsigned System Drivers
+# STEP 14 - Unsigned System Drivers
 # =============================================================================
-Write-Host "=== STEP 11 - Unsigned System Drivers ===" -ForegroundColor Cyan
+Write-Host "=== STEP 14 - Unsigned System Drivers ===" -ForegroundColor Cyan
 $sysDrivers = Get-ChildItem "$env:SystemRoot\System32\drivers" -Filter "*.sys" -ErrorAction SilentlyContinue
 $i = 0; $unsignedCount = 0
 foreach ($d in $sysDrivers) {
     $i++; Show-Progress ([math]::Round(($i / $sysDrivers.Count) * 100))
     if ((Get-AuthenticodeSignature -FilePath $d.FullName -ErrorAction SilentlyContinue).Status -ne 'Valid') { Add-Result FAIL "UNSIGNED Driver: $($d.Name)"; $unsignedCount++ }
 }
-if ($unsignedCount -eq 0) { Add-Result SAFE "All System32 drivers are properly signed." }
+if ($unsignedCount -eq 0) { Add-Result SAFE "All System32 drivers are signed." }
 Show-Progress 100
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 12 - USB Executables & Prefetch Integrity
+# STEP 15 - Persistence (Scheduled Tasks)
 # =============================================================================
-Write-Host "=== STEP 12 - USB Executables & Prefetch ===" -ForegroundColor Cyan
-Show-Progress 30
-try {
-    $sec = @(Get-WinEvent -FilterHashtable @{ LogName='Security'; Id=4688; StartTime=(Get-Date).AddDays(-7) } -MaxEvents 1000 -ErrorAction SilentlyContinue)
-    foreach ($ev in $sec) { if ($ev.Message -match 'New Process Name:\s+([D-Z]:\\.+\.exe)') { Add-Result FAIL "EXE from USB (Event 4688): $($matches[1].Trim())" } }
-} catch {}
-Show-Progress 70
-$pfReg = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters' -ErrorAction SilentlyContinue).EnablePrefetcher
-if ($pfReg -eq 0) { Add-Result FAIL "Prefetch is DISABLED! (Hiding traces)." } 
-elseif ((Get-ChildItem "C:\Windows\Prefetch" -Filter "*.pf").Count -eq 0) { Add-Result WARN "Prefetch is enabled but empty. Traces may have been wiped." } 
-else { Add-Result SAFE "Prefetch is enabled and contains data." }
-Show-Progress 100
-if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No USB executables found." }
-Flush-Results; Wait-Pager
-
-# =============================================================================
-# STEP 13 - Persistence (Tasks, Startup, Services, WMI)
-# =============================================================================
-Write-Host "=== STEP 13 - Persistence Mechanisms ===" -ForegroundColor Cyan
-Show-Progress 25
-foreach ($t in (Get-ScheduledTask | Where-Object { $_.TaskPath -notmatch '\\Microsoft\\' -and $_.State -ne 'Disabled' })) {
-    if (($t.Actions.Execute -join ' ') -match 'Temp|AppData|Public|ProgramData') { Add-Result FAIL "Suspicious Task: $($t.TaskName)" }
-}
+Write-Host "=== STEP 15 - Scheduled Tasks ===" -ForegroundColor Cyan
 Show-Progress 50
-foreach ($key in @("HKLM:\Software\Microsoft\Windows\CurrentVersion\Run", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run")) {
-    if (Test-Path $key) { foreach ($p in (Get-ItemProperty -Path $key).PSObject.Properties) { if ($p.Name -notmatch 'PS' -and $p.Value -match 'Temp|AppData|Public') { Add-Result FAIL "Suspicious Startup: $($p.Name)" } } }
-}
-Show-Progress 75
+foreach ($t in (Get-ScheduledTask | Where-Object { $_.TaskPath -notmatch '\\Microsoft\\' -and $_.State -ne 'Disabled' })) { if (($t.Actions.Execute -join ' ') -match 'Temp|AppData|Public|ProgramData') { Add-Result FAIL "Suspicious Task: $($t.TaskName)" } }
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious scheduled tasks found." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 16 - Persistence (Registry Run Keys)
+# =============================================================================
+Write-Host "=== STEP 16 - Registry Run Keys ===" -ForegroundColor Cyan
+Show-Progress 50
+foreach ($key in @("HKLM:\Software\Microsoft\Windows\CurrentVersion\Run", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run")) { if (Test-Path $key) { foreach ($p in (Get-ItemProperty -Path $key).PSObject.Properties) { if ($p.Name -notmatch 'PS' -and $p.Value -match 'Temp|AppData|Public') { Add-Result FAIL "Suspicious Startup: $($p.Name)" } } } }
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious startup entries found." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 17 - Persistence (Recently Installed Services)
+# =============================================================================
+Write-Host "=== STEP 17 - Recently Installed Services ===" -ForegroundColor Cyan
+Show-Progress 50
 try {
     $svcEvents = @(Get-WinEvent -FilterHashtable @{LogName='System'; Id=7045; StartTime=(Get-Date).AddDays(-7)} -MaxEvents 50 -ErrorAction SilentlyContinue)
     foreach ($ev in $svcEvents) { if ($ev.Message -match 'Service Name:\s+(.+)' -and $ev.Message -match 'Service File Name:\s+(.+)') { if ($matches[2].Trim() -match 'Temp|AppData|Public') { Add-Result FAIL "Suspicious Service Installed: $($matches[1].Trim())" } } }
 } catch {}
-Show-Progress 90
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious services installed recently." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 18 - Persistence (WMI Event Subscriptions)
+# =============================================================================
+Write-Host "=== STEP 18 - WMI Persistence ===" -ForegroundColor Cyan
+Show-Progress 50
 $wmiConsumers = Get-WmiObject -Namespace root\subscription -Class CommandLineEventConsumer -ErrorAction SilentlyContinue
-if ($wmiConsumers) { foreach ($c in $wmiConsumers) { Add-Result FAIL "WMI Persistence: $($c.Name)" } }
+if ($wmiConsumers) { foreach ($c in $wmiConsumers) { Add-Result FAIL "WMI Persistence: $($c.Name)" } } else { Add-Result SAFE "No WMI persistence found." }
 Show-Progress 100
-if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious persistence found." }
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 14 - Bloodhound & Anti-Cheat Status
+# STEP 19 - Network & Firewall Rules
 # =============================================================================
-Write-Host "=== STEP 14 - Bloodhound & Anti-Cheat Status ===" -ForegroundColor Cyan
-Show-Progress 30
-$obsPaths = @("$env:APPDATA\obs-studio", "$env:ProgramFiles\obs-studio", "${env:ProgramFiles(x86)}\obs-studio")
-foreach ($p in $obsPaths) { if (Test-Path $p) { $bh = Get-ChildItem -Path $p -Filter "*obs plugin templates*" -Directory -Recurse -ErrorAction SilentlyContinue; if ($bh) { Add-Result FAIL "Bloodhound detected! OBS folder found at: $($bh.FullName)" } } }
-Show-Progress 70
-$rbx = Get-Process -Name "RobloxPlayerBeta" -ErrorAction SilentlyContinue
-if ($rbx) {
-    if (($rbx.Modules | Select-Object -ExpandProperty ModuleName) -match "RobloxPlayerBeta.dll|Hyperion|Byfron") { Add-Result SAFE "Roblox Anti-Cheat (Hyperion) is active." }
-    else { Add-Result FAIL "Roblox is running, but Anti-Cheat DLL is MISSING (Bypassed)." }
-} else { Add-Result SAFE "Roblox is not currently running." }
+Write-Host "=== STEP 19 - Firewall Rules ===" -ForegroundColor Cyan
+Show-Progress 50
+foreach ($r in (Get-NetFirewallRule -Direction Outbound -Action Allow -Enabled True -ErrorAction SilentlyContinue | Get-NetFirewallApplicationFilter)) { if ($r.Program -match 'Temp|AppData|Downloads|Public' -and $r.Program -match '\.exe') { Add-Result WARN "Suspicious Outbound Firewall Rule: $($r.Program)" } }
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious outbound firewall rules found." }
 Show-Progress 100
-if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No Bloodhound or Anti-Cheat bypasses found." }
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 15 - Zone.Identifier (Download Sources)
+# STEP 20 - Zone.Identifier (Download Sources)
 # =============================================================================
-Write-Host "=== STEP 15 - Download Sources ===" -ForegroundColor Cyan
+Write-Host "=== STEP 20 - Download Sources (Zone.Identifier) ===" -ForegroundColor Cyan
 $i = 0; $foundZ = $false
 foreach ($d in @("$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:TEMP")) {
     if (Test-Path $d) {
@@ -526,26 +477,64 @@ Show-Progress 100
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 16 - Macro & Script Executors
+# STEP 21 - Roblox Executor Folders & Scripts
 # =============================================================================
-Write-Host "=== STEP 16 - Macro & Script Executors ===" -ForegroundColor Cyan
+Write-Host "=== STEP 21 - Roblox Executor Files ===" -ForegroundColor Cyan
 Show-Progress 50
-$macroProcs = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'AutoHotkey|Razer|Synapse|Logitech|GHUB|Macro' }
-if ($macroProcs) { foreach ($m in $macroProcs) { Add-Result WARN "Macro Software running: $($m.Name)" } }
-else { Add-Result SAFE "No macro software currently running." }
+$foundScript = $false
+foreach ($dir in @("$env:LOCALAPPDATA\Roblox", "$env:LOCALAPPDATA\Temp", "$env:USERPROFILE\Downloads")) {
+    if (Test-Path $dir) {
+        foreach ($s in (Get-ChildItem -Path $dir -Recurse -Include *.lua, *.asi, *.dll -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'inject|execut|krnl|xeno|fluxus|synapse|script' })) { Add-Result FAIL "Potential Roblox Executor file: $($s.FullName)"; $foundScript = $true }
+    }
+}
+if (-not $foundScript) { Add-Result SAFE "No known Roblox executor files found." }
 Show-Progress 100
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 17 - Defender Detailed
+# STEP 22 - Roblox ClientSettings Tampering
 # =============================================================================
-Write-Host "=== STEP 17 - Defender Detailed ===" -ForegroundColor Cyan
+Write-Host "=== STEP 22 - Roblox ClientSettings ===" -ForegroundColor Cyan
+Show-Progress 50
+$rbxVersions = "$env:LOCALAPPDATA\Roblox\Versions"
+if (Test-Path $rbxVersions) {
+    $settings = Get-ChildItem -Path $rbxVersions -Filter "ClientAppSettings.json" -File -Recurse -ErrorAction SilentlyContinue
+    if ($settings) { foreach ($s in $settings) { Add-Result WARN "Roblox ClientAppSettings.json found: $($s.FullName)"; if ((Get-Content $s.FullName -Raw) -match 'DFIntTaskSchedulerTargetFps|FpsCap|DisableAAC') { Add-Result FAIL "Roblox settings tampered (FPS Unlock / AAC Bypass)" } } } else { Add-Result SAFE "No Roblox ClientAppSettings tampering found." }
+} else { Add-Result SAFE "Roblox versions folder not found." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 23 - Macro & Script Executors
+# =============================================================================
+Write-Host "=== STEP 23 - Macro Executors ===" -ForegroundColor Cyan
+Show-Progress 50
+$macroProcs = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'AutoHotkey|Razer|Synapse|Logitech|GHUB|Macro' }
+if ($macroProcs) { foreach ($m in $macroProcs) { Add-Result WARN "Macro Software running: $($m.Name)" } } else { Add-Result SAFE "No macro software currently running." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 24 - Prefetch Integrity Check
+# =============================================================================
+Write-Host "=== STEP 24 - Prefetch Integrity ===" -ForegroundColor Cyan
+Show-Progress 50
+$pfReg = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters' -ErrorAction SilentlyContinue).EnablePrefetcher
+if ($pfReg -eq 0) { Add-Result FAIL "Prefetch is DISABLED! (Hiding traces)." } 
+elseif ((Get-ChildItem "C:\Windows\Prefetch" -Filter "*.pf").Count -eq 0) { Add-Result WARN "Prefetch is enabled but empty. Traces may have been wiped." } 
+else { Add-Result SAFE "Prefetch is enabled and contains data." }
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 25 - Defender Detailed
+# =============================================================================
+Write-Host "=== STEP 25 - Defender Detailed ===" -ForegroundColor Cyan
 Show-Progress 50
 try {
     $mp = Get-MpComputerStatus
     if(-not $mp.RealTimeProtectionEnabled -or -not $mp.AntivirusEnabled) { Add-Result FAIL "Defender is DISABLED." } else { Add-Result SAFE "Defender is enabled." }
-    $pref = Get-MpPreference
-    if($pref.ExclusionPath) { foreach($e in $pref.ExclusionPath) { Add-Result FAIL "Defender Exclusion: $e" } } else { Add-Result SAFE "No Defender exclusions." }
+    if((Get-MpPreference).ExclusionPath) { foreach($e in (Get-MpPreference).ExclusionPath) { Add-Result FAIL "Defender Exclusion: $e" } } else { Add-Result SAFE "No Defender exclusions." }
     $threats = @(Get-MpThreatDetection)
     if($threats.Count -gt 0) { foreach($t in $threats) { Add-Result FAIL "Defender Threat: $($t.ThreatID)" } } else { Add-Result SAFE "No Defender threats." }
 } catch {}
@@ -553,16 +542,14 @@ Show-Progress 100
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 18 - Suspicious Parent Processes
+# STEP 26 - Suspicious Parent Processes
 # =============================================================================
-Write-Host "=== STEP 18 - Suspicious Parent Processes ===" -ForegroundColor Cyan
+Write-Host "=== STEP 26 - Suspicious Parent Processes ===" -ForegroundColor Cyan
 Show-Progress 50
 $procs = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'RobloxPlayerBeta|csgo|cs2|valorant|r5apex' }
 foreach ($p in $procs) {
     $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)" -ErrorAction SilentlyContinue
-    if ($parent -and $parent.ExecutablePath -and ($parent.ExecutablePath -match 'Temp|AppData|Downloads') -and $parent.Name -notmatch 'explorer|Roblox|Steam|Epic') {
-        Add-Result FAIL "Game ($($p.Name)) launched by suspicious parent: $($parent.Name) -> $($parent.ExecutablePath)"
-    }
+    if ($parent -and $parent.ExecutablePath -and ($parent.ExecutablePath -match 'Temp|AppData|Downloads') -and $parent.Name -notmatch 'explorer|Roblox|Steam|Epic') { Add-Result FAIL "Game ($($p.Name)) launched by suspicious parent: $($parent.Name)" }
 }
 if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No games launched by suspicious parent processes." }
 Show-Progress 100
@@ -574,5 +561,5 @@ Flush-Results; Wait-Pager
 Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
 Write-Host "`n  SAFE: $($script:safeCount)  WARN: $($script:warnCount)  FAIL: $($script:failCount)`n" -ForegroundColor Cyan
 Write-Host "Report: $ReportPath" -ForegroundColor Cyan
-Write-Host "made-by-kemo | v7.0 | finished $(Get-Date)" -ForegroundColor Cyan
+Write-Host "made-by-kemo | v8.0 | finished $(Get-Date)" -ForegroundColor Cyan
 Write-Host "`n=== made-by-kemo | done ===`n" -ForegroundColor Cyan
