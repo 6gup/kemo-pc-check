@@ -392,9 +392,347 @@ if (Test-Path $recentPath) {
 if (-not $foundLnk) { Add-Result SAFE "No recent executable LNK targets found." }
 Show-Progress 100; Flush-Results; Wait-Pager
 
+# =============================================================================
+# STEP 31 - Factory Reset History
+# =============================================================================
+Write-Host "=== STEP 31 - Factory Reset History ===" -ForegroundColor Cyan
+Show-Progress 50
+
+$resetFound = $false
+
+# 1. Check Event Logs for Push-Button Reset Events (4100-4103)
+try {
+    $resetEvents = Get-WinEvent -FilterHashtable @{LogName='System'; Id=4100,4101,4102,4103} -MaxEvents 10 -ErrorAction SilentlyContinue
+    if ($resetEvents) {
+        foreach ($ev in $resetEvents) {
+            Add-Result WARN "Factory Reset Event (ID $($ev.Id)): $($ev.TimeCreated)"
+            $resetFound = $true
+        }
+    }
+} catch {}
+
+# 2. Check Windows Setup Logs for modification
+$setupLogs = @("$env:SystemRoot\Panther\setupact.log", "$env:SystemRoot\Panther\setuperr.log", "$env:SystemRoot\System32\Sysprep\setupact.log")
+foreach ($log in $setupLogs) {
+    if (Test-Path $log) {
+        $logInfo = Get-Item $log
+        Add-Result INFO "Setup Log Found: $($logInfo.FullName) (Modified: $($logInfo.LastWriteTime))"
+        $resetFound = $true
+    }
+}
+
+# 3. Check Registry Setup Keys
+$setupKeys = @("HKLM:\SYSTEM\Setup\Source OS*", "HKLM:\SYSTEM\Setup\Upgrade")
+foreach ($key in $setupKeys) {
+    if (Test-Path $key) {
+        Add-Result INFO "Registry Reset Artifact Found: $key"
+        $resetFound = $true
+    }
+}
+
+# 4. Check for Windows.old or $SysReset folders
+$resetDirs = @("C:\Windows.old", "C:\`$SysReset")
+foreach ($dir in $resetDirs) {
+    if (Test-Path $dir) {
+        $dirInfo = Get-Item $dir
+        Add-Result WARN "Reset Folder Found: $($dirInfo.FullName) (Created: $($dirInfo.CreationTime))"
+        $resetFound = $true
+    }
+}
+
+if (-not $resetFound) { 
+    Add-Result SAFE "No factory reset artifacts found." 
+}
+
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 32 - Anti-Forensic (Trace Cleaning) Detection
+# =============================================================================
+Write-Host "=== STEP 32 - Anti-Forensic Detection ===" -ForegroundColor Cyan
+Show-Progress 30
+
+$antiForensicFound = $false
+
+# 1. Check for Log Clearing Events (Event 1102 and 104)
+try {
+    $logClears = @(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=1102} -MaxEvents 5 -ErrorAction SilentlyContinue)
+    foreach ($ev in $logClears) {
+        Add-Result FAIL "SECURITY LOG CLEARED by user! (Time: $($ev.TimeCreated))"
+        $antiForensicFound = $true
+    }
+} catch {}
+try {
+    $sysClears = @(Get-WinEvent -FilterHashtable @{LogName='System'; Id=104} -MaxEvents 5 -ErrorAction SilentlyContinue)
+    foreach ($ev in $sysClears) {
+        Add-Result FAIL "SYSTEM LOG CLEARED by user! (Time: $($ev.TimeCreated))"
+        $antiForensicFound = $true
+    }
+} catch {}
+
+Show-Progress 50
+
+# 2. Check for Cleaner Tools in Prefetch
+$cleaners = @('privazer', 'ccleaner', 'bleachbit', 'pcmanager', 'cleanmgr', 'eraser')
+$pfFiles = Get-ChildItem "C:\Windows\Prefetch" -Filter "*.pf" -ErrorAction SilentlyContinue
+foreach ($pf in $pfFiles) {
+    foreach ($c in $cleaners) {
+        if ($pf.Name -match "(?i)$c") {
+            Add-Result FAIL "Anti-Forensic Tool Executed: $($pf.Name) (Time: $($pf.LastWriteTime))"
+            $antiForensicFound = $true
+        }
+    }
+}
+
+Show-Progress 75
+
+# 3. Check for Registry Wiping (Recent modifications to empty forensic keys)
+$uaPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
+if (Test-Path $uaPath) {
+    $uaItem = Get-Item $uaPath
+    # If the key was modified in the last 24 hours, they might have just wiped it
+    if ($uaItem.LastWriteTime -gt (Get-Date).AddDays(-1)) {
+        Add-Result WARN "UserAssist registry was recently modified (Possible wipe): $($uaItem.LastWriteTime)"
+    }
+}
+
+$bamPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
+if (Test-Path $bamPath) {
+    $bamItem = Get-Item $bamPath
+    if ($bamItem.LastWriteTime -gt (Get-Date).AddDays(-1)) {
+        Add-Result WARN "RunMRU registry was recently modified (Possible wipe): $($bamItem.LastWriteTime)"
+    }
+}
+
+if (-not $antiForensicFound) { 
+    Add-Result SAFE "No obvious trace-cleaning detected." 
+}
+
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 33 - USN Journal & Bypass Check
+# =============================================================================
+Write-Host "=== STEP 33 - USN Journal & Bypass Check ===" -ForegroundColor Cyan
+Show-Progress 30
+$usnOut = (fsutil usn queryjournal C: 2>&1) | Out-String
+if ($usnOut -match 'Usn Journal ID') {
+    Add-Result SAFE "USN Journal is active."
+} else {
+    Add-Result FAIL "USN Journal is DISABLED or unreadable! (Cheaters disable this to hide file deletions)."
+}
+# Check if the USN journal was recently recreated (a common bypass)
+if ($usnOut -match 'First Usn:\s+0x0') {
+    Add-Result WARN "USN Journal appears to have been recently reset or cleared."
+}
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 34 - BAMParser & BAM Bypass Check
+# =============================================================================
+Write-Host "=== STEP 34 - BAM & BAM Bypass Check ===" -ForegroundColor Cyan
+Show-Progress 30
+$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$bamPath = "SYSTEM\CurrentControlSet\Services\bam\State\UserSettings\$sid"
+$bamFound = $false
+try {
+    $k = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($bamPath)
+    if ($k) {
+        $vals = $k.GetValueNames()
+        if ($vals.Count -eq 0) {
+            Add-Result FAIL "BAM registry key is EMPTY! (Likely cleared to hide execution)."
+        } else {
+            Add-Result SAFE "BAM registry contains execution history."
+        }
+        $k.Close()
+        $bamFound = $true
+    }
+} catch {}
+if (-not $bamFound) { Add-Result FAIL "BAM registry key is MISSING or unreadable! (Bypassed or cleared)." }
+
+# Check for BAMParser tool execution
+$bamParserFound = Get-ChildItem -Path "C:\" -Filter "BAMParser.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($bamParserFound) {
+    Add-Result WARN "BAMParser tool found on disk: $($bamParserFound.FullName)"
+}
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 35 - MFTExplorer & MFT Bypass Check
+# =============================================================================
+Write-Host "=== STEP 35 - MFTExplorer & MFT Bypass Check ===" -ForegroundColor Cyan
+Show-Progress 30
+# Check if the Master File Table ($MFT) is readable
+if (Test-Path "C:\`$MFT") {
+    Add-Result SAFE "Master File Table (`$MFT) is present and readable."
+} else {
+    Add-Result FAIL "Master File Table (`$MFT) is MISSING or unreadable! (Major file system tampering)."
+}
+
+# Check for MFTExplorer tool execution
+$mftToolFound = Get-ChildItem -Path "C:\" -Filter "MFTExplorer.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($mftToolFound) {
+    Add-Result WARN "MFTExplorer tool found on disk: $($mftToolFound.FullName)"
+}
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 36 - Factory Reset History & Bypass Check
+# =============================================================================
+Write-Host "=== STEP 36 - Factory Reset History & Bypass ===" -ForegroundColor Cyan
+Show-Progress 30
+$resetFound = $false
+
+# 1. Check Event Logs for Push-Button Reset
+try {
+    $resetEvents = Get-WinEvent -FilterHashtable @{LogName='System'; Id=4100,4101,4102,4103} -MaxEvents 10 -ErrorAction SilentlyContinue
+    if ($resetEvents) {
+        foreach ($ev in $resetEvents) { Add-Result WARN "Factory Reset Event (ID $($ev.Id)): $($ev.TimeCreated)"; $resetFound = $true }
+    }
+} catch {}
+
+# 2. Check for reset folders/artifacts
+if (Test-Path "C:\Windows.old") { Add-Result WARN "Windows.old folder found (Evidence of reset/upgrade): $((Get-Item 'C:\Windows.old').CreationTime)"; $resetFound = $true }
+if (Test-Path "C:\`$SysReset") { Add-Result WARN "`$SysReset folder found: $((Get-Item 'C:\`$SysReset').CreationTime)"; $resetFound = $true }
+
+Show-Progress 60
+
+# 3. Anti-Forensic Check: Did they clear the reset history?
+try {
+    $logClears = @(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=1102} -MaxEvents 5 -ErrorAction SilentlyContinue)
+    if ($logClears) { Add-Result FAIL "SECURITY LOG CLEARED! Reset history was likely wiped. (Time: $($logClears[0].TimeCreated))" }
+} catch {}
+try {
+    $sysClears = @(Get-WinEvent -FilterHashtable @{LogName='System'; Id=104} -MaxEvents 5 -ErrorAction SilentlyContinue)
+    if ($sysClears) { Add-Result FAIL "SYSTEM LOG CLEARED! Reset history was likely wiped. (Time: $($sysClears[0].TimeCreated))" }
+} catch {}
+
+# 4. Check for Cleaner Tools (PrivaZer, CCleaner, etc) in Prefetch
+$cleaners = @('privazer', 'ccleaner', 'bleachbit')
+$pfFiles = Get-ChildItem "C:\Windows\Prefetch" -Filter "*.pf" -ErrorAction SilentlyContinue
+foreach ($pf in $pfFiles) {
+    foreach ($c in $cleaners) {
+        if ($pf.Name -match "(?i)$c") { Add-Result FAIL "Anti-Forensic Cleaner Executed: $($pf.Name) (Time: $($pf.LastWriteTime))" }
+    }
+}
+
+if (-not $resetFound -and $script:Buffer.Count -eq 0) { Add-Result SAFE "No factory reset history found." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 37 - MuiCache (Executed Programs)
+# =============================================================================
+Write-Host "=== STEP 37 - MuiCache (Executed Programs) ===" -ForegroundColor Cyan
+Show-Progress 50
+$muiCache = "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+if (Test-Path $muiCache) {
+    $props = Get-ItemProperty -Path $muiCache -ErrorAction SilentlyContinue
+    foreach ($p in $props.PSObject.Properties) {
+        if ($p.Name -match '\.exe|\.dll' -and $p.Name -notmatch '^PS') {
+            $isSusp = $false
+            foreach ($k in $highSignal) { if ($p.Name -match "(?i)$k") { $isSusp = $true; break } }
+            if ($isSusp) { Add-Result FAIL "Cheat Keyword in MuiCache: $($p.Name)" }
+        }
+    }
+}
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious programs found in MuiCache." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 38 - RunMRU (Win+R History)
+# =============================================================================
+Write-Host "=== STEP 38 - RunMRU (Win+R History) ===" -ForegroundColor Cyan
+Show-Progress 50
+$runMRU = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
+if (Test-Path $runMRU) {
+    $props = Get-ItemProperty -Path $runMRU -ErrorAction SilentlyContinue
+    foreach ($p in $props.PSObject.Properties) {
+        if ($p.Name -notmatch '^PS' -and $p.Name -ne 'MRUList') {
+            Add-Result INFO "Run Command History: $($p.Name) -> $($p.Value)"
+            foreach ($k in $highSignal) { if ($p.Value -match "(?i)$k") { Add-Result FAIL "Suspicious Run Command: $($p.Value)" } }
+        }
+    }
+} else { Add-Result SAFE "No RunMRU history found." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 39 - ComDlg32 (Last Visited Folders)
+# =============================================================================
+Write-Host "=== STEP 39 - ComDlg32 (Last Visited Folders) ===" -ForegroundColor Cyan
+Show-Progress 50
+$comDlg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU"
+if (Test-Path $comDlg) {
+    $props = Get-ItemProperty -Path $comDlg -ErrorAction SilentlyContinue
+    foreach ($p in $props.PSObject.Properties) {
+        if ($p.Name -notmatch '^PS' -and $p.Value -is [byte[]]) {
+            $str = -join ($p.Value | ForEach-Object { if ($_ -ge 32 -and $_ -le 126) { [char]$_ } else { ' ' } })
+            if ($str -match '[a-zA-Z]:\\') {
+                $cleanPath = ($str -split '\s{2,}')[0]
+                if ($cleanPath.Length -gt 4) { Add-Result INFO "Recent Open/Save Folder: $cleanPath" }
+            }
+        }
+    }
+} else { Add-Result SAFE "No ComDlg32 history found." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 40 - Recent LNK Shortcuts
+# =============================================================================
+Write-Host "=== STEP 40 - Recent LNK Shortcuts ===" -ForegroundColor Cyan
+Show-Progress 30
+$recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
+$foundLnk = $false
+if (Test-Path $recentPath) {
+    $lnks = Get-ChildItem -Path $recentPath -Filter "*.lnk" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 15
+    foreach ($lnk in $lnks) {
+        $bytes = [System.IO.File]::ReadAllBytes($lnk.FullName)
+        $txt = [System.Text.Encoding]::ASCII.GetString($bytes) + [System.Text.Encoding]::Unicode.GetString($bytes)
+        $matches = [regex]::Matches($txt, '[a-zA-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\.exe')
+        foreach ($m in $matches) {
+            $exePath = $m.Value
+            if ($exePath.Length -gt 6) {
+                Add-Result INFO "Recent LNK Target: $exePath (Opened: $($lnk.LastWriteTime))"
+                $foundLnk = $true
+                foreach ($k in $highSignal) { if ($exePath -match "(?i)$k") { Add-Result FAIL "Cheat Keyword in LNK Target: $exePath" } }
+            }
+        }
+    }
+}
+if (-not $foundLnk) { Add-Result SAFE "No recent executable LNK targets found." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 41 - Deep Anti-Forensic Cleaner Detection
+# =============================================================================
+Write-Host "=== STEP 41 - Deep Anti-Forensic Detection ===" -ForegroundColor Cyan
+Show-Progress 50
+$cleaners = @('privazer', 'ccleaner', 'bleachbit', 'pcmanager', 'cleanmgr', 'eraser')
+$pfFiles = Get-ChildItem "C:\Windows\Prefetch" -Filter "*.pf" -ErrorAction SilentlyContinue
+$foundCleaner = $false
+foreach ($pf in $pfFiles) {
+    foreach ($c in $cleaners) {
+        if ($pf.Name -match "(?i)$c") {
+            Add-Result FAIL "Anti-Forensic Tool Executed: $($pf.Name) (Time: $($pf.LastWriteTime))"
+            $foundCleaner = $true
+        }
+    }
+}
+$uaPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
+if (Test-Path $uaPath) {
+    $uaItem = Get-Item $uaPath
+    if ($uaItem.LastWriteTime -gt (Get-Date).AddDays(-1)) { Add-Result WARN "UserAssist registry recently modified (Possible wipe): $($uaItem.LastWriteTime)" }
+}
+if (-not $foundCleaner) { Add-Result SAFE "No obvious trace-cleaning detected." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# =============================================================================
 # SUMMARY
+# =============================================================================
 Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
 Write-Host "`n  SAFE: $($script:safeCount)  WARN: $($script:warnCount)  FAIL: $($script:failCount)`n" -ForegroundColor Cyan
 Write-Host "Report: $ReportPath" -ForegroundColor Cyan
 Write-Host "made-by-kemo | v8.2 | finished $(Get-Date)" -ForegroundColor Cyan
 Write-Host "`n=== made-by-kemo | done ===`n" -ForegroundColor Cyan
+
