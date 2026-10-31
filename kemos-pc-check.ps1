@@ -728,6 +728,102 @@ if (-not $foundCleaner) { Add-Result SAFE "No obvious trace-cleaning detected." 
 Show-Progress 100; Flush-Results; Wait-Pager
 
 # =============================================================================
+# STEP 42 - Discord Alt Account Detection (Username & ID Extraction)
+# =============================================================================
+Write-Host "=== STEP 42 - Discord Account Detection ===" -ForegroundColor Cyan
+Show-Progress 30
+
+$discordPath = "$env:APPDATA\discord\Local Storage\leveldb"
+$discordAccounts = @()
+
+if (Test-Path $discordPath) {
+    $dbFiles = Get-ChildItem -Path $discordPath -Include *.ldb, *.log -File -ErrorAction SilentlyContinue
+    
+    foreach ($file in $dbFiles) {
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+            $txt = [System.Text.Encoding]::UTF8.GetString($bytes)
+            
+            # Look for cached account identity JSON patterns
+            # Discord caches usernames and IDs in these keys
+            $idMatches = [regex]::Matches($txt, '"id":"(\d{17,19})"')
+            $userMatches = [regex]::Matches($txt, '"username":"([^"]+)"')
+            
+            # Correlate them into account objects
+            for ($i = 0; $i -lt [Math]::Min($idMatches.Count, $userMatches.Count); $i++) {
+                $discordAccounts += [PSCustomObject]@{
+                    ID = $idMatches[$i].Groups[1].Value
+                    Username = $userMatches[$i].Groups[1].Value
+                }
+            }
+        } catch {}
+    }
+    
+    # Deduplicate accounts
+    $uniqueAccounts = $discordAccounts | Sort-Object ID -Unique
+    
+    if ($uniqueAccounts.Count -gt 0) {
+        Add-Result INFO "Found $($uniqueAccounts.Count) Discord account trace(s) in cache:"
+        foreach ($acc in $uniqueAccounts) {
+            Add-Result WARN "  [Discord] Username: $($acc.Username) | ID: $($acc.ID)"
+        }
+        if ($uniqueAccounts.Count -gt 1) {
+            Add-Result FAIL "Multiple Discord accounts detected in local cache (Alt account activity)."
+        }
+    } else {
+        Add-Result SAFE "No cached Discord account identities found."
+    }
+} else {
+    Add-Result SAFE "Discord local storage not found."
+}
+
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
+# STEP 43 - Roblox Account Detection (Registry & Logs)
+# =============================================================================
+Write-Host "=== STEP 43 - Roblox Account Detection ===" -ForegroundColor Cyan
+Show-Progress 30
+
+$robloxAccounts = @()
+
+# 1. Check Registry for Roblox Login Info
+$robloxRegPath = "HKCU:\Software\Roblox\RobloxStudioBrowser\roblox.com"
+if (Test-Path $robloxRegPath) {
+    $regProps = Get-ItemProperty -Path $robloxRegPath -ErrorAction SilentlyContinue
+    if ($regProps.ROBLOSECURITY) {
+        Add-Result INFO "Roblox .ROBLOSECURITY cookie found in registry (Account logged in)."
+    }
+}
+
+# 2. Check Roblox Logs for cached usernames
+$robloxLogs = Get-ChildItem -Path "$env:LOCALAPPDATA\Roblox\logs" -Filter "*.log" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+foreach ($log in $robloxLogs) {
+    try {
+        $content = Get-Content $log.FullName -Raw -ErrorAction SilentlyContinue
+        # Roblox logs often contain lines like "User: username" or "Authenticated as username"
+        $userMatches = [regex]::Matches($content, '(?i)(?:User|Authenticated as|Username)[:\s]+([a-zA-Z0-9_]{3,20})')
+        foreach ($m in $userMatches) {
+            $robloxAccounts += $m.Groups[1].Value
+        }
+    } catch {}
+}
+
+$uniqueRoblox = $robloxAccounts | Sort-Object -Unique
+if ($uniqueRoblox.Count -gt 0) {
+    Add-Result INFO "Found $($uniqueRoblox.Count) Roblox username(s) in logs:"
+    foreach ($user in $uniqueRoblox) {
+        Add-Result WARN "  [Roblox] Username: $user"
+    }
+} else {
+    Add-Result SAFE "No Roblox usernames found in recent logs."
+}
+
+Show-Progress 100
+Flush-Results; Wait-Pager
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
