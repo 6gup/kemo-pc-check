@@ -316,9 +316,85 @@ foreach ($p in $procs) { $parent = Get-CimInstance Win32_Process -Filter "Proces
 if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No games launched by suspicious parent processes." }
 Show-Progress 100; Flush-Results; Wait-Pager
 
+ # STEP 27
+Write-Host "=== STEP 27 - MuiCache (Executed Programs) ===" -ForegroundColor Cyan
+Show-Progress 50
+$muiCache = "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+if (Test-Path $muiCache) {
+    $props = Get-ItemProperty -Path $muiCache -ErrorAction SilentlyContinue
+    foreach ($p in $props.PSObject.Properties) {
+        if ($p.Name -match '\.exe|\.dll' -and $p.Name -notmatch '^PS') {
+            $isSusp = $false
+            foreach ($k in $highSignal) { if ($p.Name -match "(?i)$k") { $isSusp = $true; break } }
+            if ($isSusp) { Add-Result FAIL "Cheat Keyword in MuiCache: $($p.Name)" }
+        }
+    }
+}
+if ($script:Buffer.Count -eq 0) { Add-Result SAFE "No suspicious programs found in MuiCache." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# STEP 28
+Write-Host "=== STEP 28 - RunMRU (Win+R History) ===" -ForegroundColor Cyan
+Show-Progress 50
+$runMRU = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
+if (Test-Path $runMRU) {
+    $props = Get-ItemProperty -Path $runMRU -ErrorAction SilentlyContinue
+    foreach ($p in $props.PSObject.Properties) {
+        if ($p.Name -notmatch '^PS' -and $p.Name -ne 'MRUList') {
+            Add-Result INFO "Run Command History: $($p.Name) -> $($p.Value)"
+            foreach ($k in $highSignal) { if ($p.Value -match "(?i)$k") { Add-Result FAIL "Suspicious Run Command: $($p.Value)" } }
+        }
+    }
+} else { Add-Result SAFE "No RunMRU history found." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# STEP 29
+Write-Host "=== STEP 29 - ComDlg32 (Last Visited Folders) ===" -ForegroundColor Cyan
+Show-Progress 50
+$comDlg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU"
+if (Test-Path $comDlg) {
+    $props = Get-ItemProperty -Path $comDlg -ErrorAction SilentlyContinue
+    foreach ($p in $props.PSObject.Properties) {
+        if ($p.Name -notmatch '^PS' -and $p.Value -is [byte[]]) {
+            # Extract readable strings from the binary registry value
+            $str = -join ($p.Value | ForEach-Object { if ($_ -ge 32 -and $_ -le 126) { [char]$_ } else { ' ' } })
+            if ($str -match '[a-zA-Z]:\\') {
+                $cleanPath = ($str -split '\s{2,}')[0] # Get the first clean path chunk
+                if ($cleanPath.Length -gt 4) { Add-Result INFO "Recent Open/Save Folder: $cleanPath" }
+            }
+        }
+    }
+} else { Add-Result SAFE "No ComDlg32 history found." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
+# STEP 30
+Write-Host "=== STEP 30 - Recent LNK Shortcuts ===" -ForegroundColor Cyan
+Show-Progress 30
+$recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
+$foundLnk = $false
+if (Test-Path $recentPath) {
+    $lnks = Get-ChildItem -Path $recentPath -Filter "*.lnk" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 15
+    foreach ($lnk in $lnks) {
+        # Read the binary LNK file and extract strings that look like file paths
+        $bytes = [System.IO.File]::ReadAllBytes($lnk.FullName)
+        $txt = [System.Text.Encoding]::ASCII.GetString($bytes) + [System.Text.Encoding]::Unicode.GetString($bytes)
+        $matches = [regex]::Matches($txt, '[a-zA-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\.exe')
+        foreach ($m in $matches) {
+            $exePath = $m.Value
+            if ($exePath.Length -gt 6) {
+                Add-Result INFO "Recent LNK Target: $exePath (Opened: $($lnk.LastWriteTime))"
+                $foundLnk = $true
+                foreach ($k in $highSignal) { if ($exePath -match "(?i)$k") { Add-Result FAIL "Cheat Keyword in LNK Target: $exePath" } }
+            }
+        }
+    }
+}
+if (-not $foundLnk) { Add-Result SAFE "No recent executable LNK targets found." }
+Show-Progress 100; Flush-Results; Wait-Pager
+
 # SUMMARY
 Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
 Write-Host "`n  SAFE: $($script:safeCount)  WARN: $($script:warnCount)  FAIL: $($script:failCount)`n" -ForegroundColor Cyan
 Write-Host "Report: $ReportPath" -ForegroundColor Cyan
-Write-Host "made-by-kemo | v8.1 | finished $(Get-Date)" -ForegroundColor Cyan
+Write-Host "made-by-kemo | v8.2 | finished $(Get-Date)" -ForegroundColor Cyan
 Write-Host "`n=== made-by-kemo | done ===`n" -ForegroundColor Cyan
