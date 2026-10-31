@@ -1,12 +1,12 @@
 # =============================================================================
-# made-by-kemo | PC Forensic Check v5.2 (Paged UI & Custom Progress Bars)
-# made-by-kemo | Run as Administrator. Output -> $env:USERPROFILE\Desktop\PC-Check
+#  made-by-kemo | PC Forensic Check v5.3 (Total PC .cfg Scan & Paged UI)
+#  made-by-kemo | Run as Administrator. Output -> $env:USERPROFILE\Desktop\PC-Check
 # =============================================================================
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 
 # =============================================================================
-# LOGIN & HWID LOCK SYSTEM
+#  LOGIN & HWID LOCK SYSTEM
 # =============================================================================
 Clear-Host
 Write-Host "`n=== made-by-kemo | Secure Login ===`n" -ForegroundColor Cyan
@@ -52,12 +52,12 @@ Start-Sleep -Seconds 2
 Clear-Host
 
 # =============================================================================
-# FORENSIC CHECK START
+#  FORENSIC CHECK START
 # =============================================================================
 $Out = "$env:USERPROFILE\Desktop\PC-Check"
 $ReportPath = Join-Path $Out "report.txt"
 New-Item -ItemType Directory -Path $Out -Force | Out-Null
-"made-by-kemo | v5.2 | started $(Get-Date) | User: $user" | Out-File $ReportPath
+"made-by-kemo | v5.3 | started $(Get-Date) | User: $user" | Out-File $ReportPath
 $script:failCount = 0; $script:warnCount = 0; $script:safeCount = 0
 $script:Buffer = @()
 
@@ -66,7 +66,7 @@ function Show-Progress {
     $filled = [math]::Floor($Percent / 10)
     $empty = 10 - $filled
     $bar = ("/" * $filled) + ("-" * $empty)
-    Write-Host "`r[$bar] $Percent% " -NoNewline -ForegroundColor Cyan
+    Write-Host "`r[$bar] $Percent%   " -NoNewline -ForegroundColor Cyan
 }
 
 function Add-Result {
@@ -76,7 +76,7 @@ function Add-Result {
 }
 
 function Flush-Results {
-    Write-Host "`n" # Move below progress bar
+    Write-Host "`n" 
     $c = @{SAFE='Green'; WARN='Yellow'; FAIL='Red'; INFO='Cyan'}
     foreach ($item in $script:Buffer) {
         Write-Host "[$($item.Tag)] $($item.Message)" -ForegroundColor $c[$item.Tag]
@@ -140,14 +140,19 @@ try {
 Flush-Results; Wait-Pager
 
 # =============================================================================
-# STEP 2 - Full PC & USB .cfg Inspection
+# STEP 2 - Total PC & USB .cfg Inspection (Native Crawler)
 # =============================================================================
-Write-Host "=== STEP 2 - Full PC & USB .cfg Inspection ===" -ForegroundColor Cyan
+Write-Host "=== STEP 2 - Total PC & USB .cfg Inspection ===" -ForegroundColor Cyan
+Write-Host "`nEnumerating ALL .cfg files across every drive (including hidden/system)..." -ForegroundColor Yellow
+
 $drives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3 OR DriveType=2" | Select-Object -ExpandProperty DeviceID
 $cfgFiles = @()
 foreach ($d in $drives) {
-    $cfgFiles += Get-ChildItem -Path "$d\" -Filter "*.cfg" -File -Recurse -Force -ErrorAction SilentlyContinue
+    # Uses native cmd.exe to bypass PowerShell junction loops and permission silences
+    $files = cmd.exe /c "dir $d\*.cfg /s /b /a-d" 2>$null
+    if ($files) { $cfgFiles += $files | Where-Object { $_ -match '\.cfg$' } }
 }
+$cfgFiles = $cfgFiles | Select-Object -Unique
 
 if ($cfgFiles.Count -gt 0) {
     $i = 0
@@ -155,15 +160,37 @@ if ($cfgFiles.Count -gt 0) {
         $i++
         $pct = [math]::Round(($i / $cfgFiles.Count) * 100)
         Show-Progress $pct
-        $content = Get-Content $cfg.FullName -Raw -ErrorAction SilentlyContinue
+        
+        # Skip massive files to prevent memory leaks
+        if ((Get-Item -LiteralPath $cfg -ErrorAction SilentlyContinue).Length -gt 50MB) {
+            Add-Result WARN "Skipped huge .cfg: $cfg"
+            continue
+        }
+
         $isSusp = $false
-        foreach ($k in $highSignal) { if ($content -match "(?i)$k") { $isSusp = $true; break } }
-        if ($isSusp) { Add-Result FAIL "Suspicious .cfg: $($cfg.FullName)" } 
-        else { Add-Result SAFE "Clean .cfg: $($cfg.FullName)" }
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($cfg)
+            # Read in ASCII, UTF8, and Unicode to catch all cheat encodings
+            $txtUTF8 = [System.Text.Encoding]::UTF8.GetString($bytes)
+            $txtUni  = [System.Text.Encoding]::Unicode.GetString($bytes)
+            $txtAscii = [System.Text.Encoding]::ASCII.GetString($bytes)
+            
+            foreach ($k in $highSignal) {
+                if ($txtUTF8 -match "(?i)$k" -or $txtUni -match "(?i)$k" -or $txtAscii -match "(?i)$k") {
+                    $isSusp = $true; break 
+                }
+            }
+        } catch {
+            Add-Result WARN "Could not read .cfg: $cfg (Locked)"
+            continue
+        }
+        
+        if ($isSusp) { Add-Result FAIL "Suspicious .cfg: $cfg (Keyword found!)" } 
+        else { Add-Result SAFE "Clean .cfg: $cfg" }
     }
 } else {
     for($i=0; $i -le 100; $i+=10) { Show-Progress $i; Start-Sleep -Milliseconds 20 }
-    Add-Result SAFE "No .cfg files found on fixed or USB drives."
+    Add-Result SAFE "No .cfg files found anywhere on this PC or USB."
 }
 Flush-Results; Wait-Pager
 
@@ -346,7 +373,7 @@ Flush-Results; Wait-Pager
 # SUMMARY
 # =============================================================================
 Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
-Write-Host "`n SAFE: $($script:safeCount) WARN: $($script:warnCount) FAIL: $($script:failCount)`n" -ForegroundColor Cyan
+Write-Host "`n  SAFE: $($script:safeCount)  WARN: $($script:warnCount)  FAIL: $($script:failCount)`n" -ForegroundColor Cyan
 Write-Host "Report: $ReportPath" -ForegroundColor Cyan
-Write-Host "made-by-kemo | v5.2 | finished $(Get-Date)" -ForegroundColor Cyan
+Write-Host "made-by-kemo | v5.3 | finished $(Get-Date)" -ForegroundColor Cyan
 Write-Host "`n=== made-by-kemo | done ===`n" -ForegroundColor Cyan
